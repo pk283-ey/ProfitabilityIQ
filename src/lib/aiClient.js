@@ -40,7 +40,7 @@ async function callAPI(messages, systemContent) {
 
   const body = isAnthropic
     ? { system: systemContent, messages, max_tokens: 4096, ...(MODEL ? { model: MODEL } : {}) }
-    : { messages: [{ role: 'system', content: systemContent }, ...messages], max_completion_tokens: 16000, ...(MODEL ? { model: MODEL } : {}) }
+    : { messages: [{ role: 'system', content: systemContent }, ...messages], max_completion_tokens: 4096, ...(MODEL ? { model: MODEL } : {}) }
 
   const fullEndpoint = resolveEndpoint()
   // Route every request through /api-proxy:
