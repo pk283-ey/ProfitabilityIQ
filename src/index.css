@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-slate-100 shadow-sm;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-xl hover:bg-brand-700 active:bg-brand-800 transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-slate-500 text-sm font-medium rounded-xl hover:bg-slate-100 transition-colors;
+  }
+  .typing-dot {
+    @apply w-2 h-2 bg-slate-400 rounded-full;
+    animation: pulseDot 1.4s ease-in-out infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+}
+
+/* Table styles */
+.data-table { @apply w-full text-sm; }
+.data-table th {
+  @apply bg-slate-50 text-slate-500 font-semibold text-xs uppercase tracking-wide px-4 py-3 text-left border-b border-slate-200;
+}
+.data-table td {
+  @apply px-4 py-3 text-slate-700 border-b border-slate-100;
+}
+.data-table tr:last-child td { @apply border-0; }
+.data-table tr:hover td { @apply bg-slate-50/60; }
+.data-table td.num { @apply text-right font-mono; }
+.data-table th.num { @apply text-right; }
+
+/* Chat bubble fade-in */
+.msg-enter { animation: slideUp 0.25s ease-out; }

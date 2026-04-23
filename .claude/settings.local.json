@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/LJ153JQ/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/1c984f0c-eb78-4b96-bdfe-21d9dbd0c511/dec46cc1-a3ac-46b2-a752-38203bd779fa/skills/xlsx/**)",
+      "Bash(python3 -c ':*)",
+      "Bash(python -c ':*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vite:*)",
+      "Bash(curl -s http://localhost:5173)"
+    ]
+  }
+}
