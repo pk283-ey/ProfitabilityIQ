@@ -6,14 +6,18 @@
   command = "npm run build"
   publish = "dist"
 
+# ── Serverless function settings ──────────────────────────────────────────────
+[functions]
+  directory         = "netlify/functions"
+  node_bundler      = "esbuild"
+
 # ── API proxy — MUST come before the SPA catch-all ───────────────────────────
-# Netlify forwards /api-proxy/* to your AI endpoint server-side,
-# which avoids CORS errors that would occur with direct browser requests.
-# The :splat captures the full path after /api-proxy and appends it to the
-# origin of VITE_API_ENDPOINT (set this in the Netlify dashboard env vars).
+# Routes /api-proxy POST requests to the Netlify Function.
+# The function reads all config (endpoint, key, auth style) from server-side
+# environment variables, so nothing sensitive is exposed in the JS bundle.
 [[redirects]]
-  from   = "/api-proxy/*"
-  to     = "https://eyq-incubator.america.fabric.ey.com/:splat"
+  from   = "/api-proxy"
+  to     = "/.netlify/functions/api-proxy"
   status = 200
   force  = true
 

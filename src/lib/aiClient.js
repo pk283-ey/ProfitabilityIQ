@@ -43,17 +43,18 @@ async function callAPI(messages, systemContent) {
     : { messages: [{ role: 'system', content: systemContent }, ...messages], max_completion_tokens: 4096, ...(MODEL ? { model: MODEL } : {}) }
 
   const fullEndpoint = resolveEndpoint()
-  // Route every request through /api-proxy:
-  //   dev  → Vite dev server forwards it (vite.config.js server.proxy)
-  //   prod → Netlify redirect rule forwards it (netlify.toml)
-  // Falls back to a direct call only if the endpoint URL can't be parsed
-  // (e.g. VITE_API_ENDPOINT is not set in the environment).
+  // Dev:  Vite proxy needs the full path to know which origin to forward to
+  // Prod: Netlify Function at /api-proxy builds the target URL from env vars
   let url
-  try {
-    const u = new URL(fullEndpoint)
-    url = `/api-proxy${u.pathname}${u.search}`
-  } catch {
-    url = fullEndpoint
+  if (import.meta.env.DEV) {
+    try {
+      const u = new URL(fullEndpoint)
+      url = `/api-proxy${u.pathname}${u.search}`
+    } catch {
+      url = fullEndpoint
+    }
+  } else {
+    url = '/api-proxy'
   }
 
   const authHeaders = buildAuthHeaders()
