@@ -156,6 +156,28 @@ export function computeDashboardData(filteredData, rawData, filters) {
   const pieByProduct  = pieAgg('Product Group')
   const pieByDivision = pieAgg('Divison')
 
+  // ─ Prev year monthly data — for YoY overlay on trend chart ─────────────────
+  let prevYearMonthlyData = []
+  if (filters.year !== 'All') {
+    const prevYr = String(Number(filters.year) - 1)
+    const pyRows = rawData.filter(row => {
+      if (filters.sbu          !== 'All' && row['SBU']               !== filters.sbu)          return false
+      if (String(row['FiscalYear'])       !== prevYr)                                           return false
+      if (filters.scenario     !== 'All' && row['Scenario']           !== filters.scenario)      return false
+      if (filters.fiscalQuarter !== 'All'&& row['FiscalQuarter']      !== filters.fiscalQuarter) return false
+      return true
+    })
+    const pyByMonth = groupBy(pyRows, 'MonthName')
+    prevYearMonthlyData = MONTH_ORDER
+      .filter(m => pyByMonth[m])
+      .map(month => ({
+        month,
+        sales:  sum(pyByMonth[month], 'Sales'),
+        margin: sum(pyByMonth[month], 'Margin'),
+        volume: sum(pyByMonth[month], 'Sales Volume'),
+      }))
+  }
+
   // ─ YoY comparison — previous fiscal year, same scenario/SBU/quarter ────────
   let prevYearKpis = null
   if (filters.year !== 'All') {
@@ -199,6 +221,7 @@ export function computeDashboardData(filteredData, rawData, filters) {
     kpis: { totalSales, totalMargin, totalCOGM, totalVolume, marginPct },
     prevYearKpis,
     prevMonthKpis,
+    prevYearMonthlyData,
     therapyRanked,
     productRanked,
     dosageData,
@@ -271,22 +294,29 @@ export function computeExecutiveSummary(rawData, filters) {
   const taVars = computeVars(aggBy(actRows, 'Therapy Area'), aggBy(budRows, 'Therapy Area'))
   const pgVars = computeVars(aggBy(actRows, 'Product Group'), aggBy(budRows, 'Product Group'))
 
-  // ── Tailwind T1: Therapy Area with highest positive Vol Var ──────────────────
-  const tailwindTA = [...taVars].sort((a, b) => b.volVar - a.volVar)
-    .find(r => r.volVar > 0) || null
-
-  // ── Tailwind T2: Product Group with strongest Price Var + Margin expansion ───
-  const tailwindPG = [...pgVars]
+  // ── Value Drivers — top 2 PGs ────────────────────────────────────────────────
+  // Driver 1: best price var + margin expansion
+  const pgByDriver = [...pgVars]
     .filter(r => r.priceVar > 0 || r.mPctExpBps > 0)
-    .sort((a, b) => (b.priceVar + b.mPctExpBps * 1e4) - (a.priceVar + a.mPctExpBps * 1e4))[0] || null
+    .sort((a, b) => (b.priceVar + b.mPctExpBps * 1e4) - (a.priceVar + a.mPctExpBps * 1e4))
+  const twPG1 = pgByDriver[0] || null
 
-  // ── Headwind H1: Product Group with worst COGM pressure (cost rose most) ─────
-  const headwindPG = [...pgVars].sort((a, b) => a.cogmVar - b.cogmVar)
-    .find(r => r.cogmVar < 0) || null
+  // Driver 2: best PG by volume var (different product from twPG1)
+  const pgByVolDriver = [...pgVars]
+    .filter(r => r.volVar > 0 && r.name !== twPG1?.name)
+    .sort((a, b) => b.volVar - a.volVar)
+  const twPG2 = pgByVolDriver[0] || pgByDriver[1] || null
 
-  // ── Headwind H2: Therapy Area with largest negative Vol Var ──────────────────
-  const headwindTA = [...taVars].sort((a, b) => a.volVar - b.volVar)
-    .find(r => r.volVar < 0) || null
+  // ── Value Eroders — top 2 PGs ─────────────────────────────────────────────────
+  // Eroder 1: worst COGM pressure (cost overrun)
+  const pgByCOGM = [...pgVars].sort((a, b) => a.cogmVar - b.cogmVar)
+  const hwPG1 = pgByCOGM.find(r => r.cogmVar < 0) || null
+
+  // Eroder 2: worst vol var (different product from hwPG1)
+  const pgByVolEroder = [...pgVars]
+    .filter(r => r.volVar < 0 && r.name !== hwPG1?.name)
+    .sort((a, b) => a.volVar - b.volVar)
+  const hwPG2 = pgByVolEroder[0] || pgByCOGM[1] || null
 
   // ── Revenue driver (total across all therapy areas) ──────────────────────────
   const totalPriceVar = taVars.reduce((s, r) => s + r.priceVar, 0)
@@ -312,8 +342,8 @@ export function computeExecutiveSummary(rawData, filters) {
   }
 
   return {
-    tailwinds: { ta: tailwindTA, pg: tailwindPG },
-    headwinds: { pg: headwindPG, ta: headwindTA },
+    tailwinds: { pg1: twPG1, pg2: twPG2 },
+    headwinds: { pg1: hwPG1, pg2: hwPG2 },
     revenueDriver,
     totalPriceVar,
     totalVolVar,

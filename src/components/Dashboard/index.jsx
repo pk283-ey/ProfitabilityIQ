@@ -49,7 +49,7 @@ export default function Dashboard({ parsedData, onNavigateToChat, onBack }) {
               <Sparkles size={13} className="text-white" />
             </div>
             <div>
-              <span className="text-sm font-bold text-slate-800">Profitability Intelligence</span>
+              <span className="text-sm font-bold text-slate-800">Lupin ProfitIQ</span>
               <span className="ml-2 text-xs text-slate-400 hidden md:inline">Dashboard</span>
             </div>
           </div>
@@ -69,7 +69,7 @@ export default function Dashboard({ parsedData, onNavigateToChat, onBack }) {
             </div>
             <button onClick={onNavigateToChat} className="btn-primary text-sm">
               <MessageSquare size={15} />
-              AI Chat
+              Ask Fino
             </button>
           </div>
         </div>
@@ -91,14 +91,18 @@ export default function Dashboard({ parsedData, onNavigateToChat, onBack }) {
             <ComboChart filteredData={filteredData} />
           </div>
           <div className="xl:col-span-2 flex flex-col">
-            <TrendChart monthlyData={dashData.monthlyData} />
+            <TrendChart
+              monthlyData={dashData.monthlyData}
+              prevYearMonthlyData={dashData.prevYearMonthlyData}
+              prevYear={filters.year !== 'All' ? String(Number(filters.year) - 1) : null}
+            />
           </div>
         </div>
 
         {/* Row 2: Budget Achievement (2/5) + Sales Pie (3/5) — equal stretch */}
         <div className={`grid grid-cols-1 xl:grid-cols-5 gap-6 items-stretch ${ROW_MIN_H}`}>
           <div className="xl:col-span-2 flex flex-col">
-            <GaugeChart gaugeData={dashData.gaugeData} />
+            <GaugeChart rawData={rawData} filters={filters} />
           </div>
           <div className="xl:col-span-3 flex flex-col">
             <PieBreakdown pie={dashData.pie} />

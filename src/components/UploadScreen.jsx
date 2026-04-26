@@ -43,7 +43,7 @@ export default function UploadScreen({ onReady }) {
           <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center">
             <Sparkles size={16} className="text-white" />
           </div>
-          <span className="text-base font-semibold text-slate-800">Profitability Intelligence</span>
+          <span className="text-base font-semibold text-slate-800">Lupin ProfitIQ</span>
         </div>
       </header>
 
@@ -101,7 +101,7 @@ export default function UploadScreen({ onReady }) {
 
       <footer className="border-t border-slate-100 py-4 px-6">
         <p className="text-center text-xs text-slate-400">
-          Profitability Intelligence · Data processed locally in your browser · No data leaves your device
+          Lupin ProfitIQ · Data processed locally in your browser · No data leaves your device
         </p>
       </footer>
     </div>

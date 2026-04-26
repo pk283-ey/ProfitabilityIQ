@@ -1,14 +1,50 @@
+import { useState, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer, Cell, Label,
+  Tooltip, ResponsiveContainer, Cell, Label,
 } from 'recharts'
 import { CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
+
+const MONTH_ORDER = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar']
+
+const DIM_OPTIONS = [
+  { value: '',              label: 'All'          },
+  { value: 'Therapy Area',  label: 'Therapy Area' },
+  { value: 'Product Group', label: 'Product Group'},
+  { value: 'Divison',       label: 'Division'     },
+]
 
 const fmt = (n) => {
   if (!n && n !== 0) return '—'
   if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
   if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`
   return `$${n.toFixed(0)}`
+}
+
+function sum(arr, key) {
+  return arr.reduce((s, r) => s + (Number(r[key]) || 0), 0)
+}
+
+function computeGauge(rows) {
+  const actualsMonths = rows
+    .filter(r => r.Scenario === 'Actuals')
+    .map(r => r.MonthName)
+    .filter(Boolean)
+  const latestMonth = MONTH_ORDER.filter(m => actualsMonths.includes(m)).pop() || null
+  if (!latestMonth) return null
+
+  const monthRows = rows.filter(r => r.MonthName === latestMonth)
+  const actSales  = sum(monthRows.filter(r => r.Scenario === 'Actuals'),         'Sales')
+  const budSales  = sum(monthRows.filter(r => r.Scenario === 'Budgeted'),        'Sales')
+  const leSales   = sum(monthRows.filter(r => r.Scenario === 'Latest Estimate'), 'Sales')
+  return {
+    month:      latestMonth,
+    actuals:    actSales,
+    budget:     budSales,
+    le:         leSales,
+    actualsPct: budSales > 0 ? actSales / budSales * 100 : 0,
+    lePct:      budSales > 0 ? leSales  / budSales * 100 : 0,
+  }
 }
 
 // Horizontal progress bar for one scenario
@@ -28,12 +64,10 @@ function ProgressBar({ label, value, budget, color, pct }) {
         </div>
       </div>
       <div className="relative h-5 bg-slate-100 rounded-full overflow-hidden">
-        {/* Achieved portion */}
         <div
           className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
           style={{ width: `${capped}%`, background: color, opacity: 0.9 }}
         />
-        {/* Exceeded extension (beyond 100% mark) */}
         {exceeded && (
           <div
             className="absolute top-0 h-full rounded-r-full"
@@ -44,9 +78,7 @@ function ProgressBar({ label, value, budget, color, pct }) {
             }}
           />
         )}
-        {/* Budget reference line at 66.67% of bar width (100% of budget) */}
         <div className="absolute top-0 h-full w-px bg-slate-400 opacity-60" style={{ left: '66.67%' }} />
-        {/* Label inside bar */}
         {capped > 20 && (
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-white drop-shadow-sm">
             {label}
@@ -73,7 +105,35 @@ const CustomTooltip = ({ active, payload }) => {
   )
 }
 
-export default function GaugeChart({ gaugeData }) {
+export default function GaugeChart({ rawData, filters }) {
+  const [dimType,  setDimType]  = useState('')
+  const [dimValue, setDimValue] = useState('')
+
+  // Base rows: filtered by SBU / FiscalYear / Quarter (not by scenario)
+  const baseRows = useMemo(() => rawData.filter(row => {
+    if (filters.sbu           !== 'All' && row['SBU']          !== filters.sbu)           return false
+    if (filters.year          !== 'All' && String(row['FiscalYear']) !== String(filters.year)) return false
+    if (filters.fiscalQuarter !== 'All' && row['FiscalQuarter'] !== filters.fiscalQuarter) return false
+    return true
+  }), [rawData, filters.sbu, filters.year, filters.fiscalQuarter])
+
+  // Available values for the selected dimension type
+  const dimValues = useMemo(() => {
+    if (!dimType) return []
+    return [...new Set(baseRows.map(r => r[dimType]).filter(Boolean))].sort()
+  }, [baseRows, dimType])
+
+  // Reset dimValue when dimType changes
+  const handleDimTypeChange = (v) => { setDimType(v); setDimValue('') }
+
+  // Rows after optional dimension filter
+  const gaugeRows = useMemo(() => {
+    if (!dimType || !dimValue) return baseRows
+    return baseRows.filter(r => r[dimType] === dimValue)
+  }, [baseRows, dimType, dimValue])
+
+  const gaugeData = useMemo(() => computeGauge(gaugeRows), [gaugeRows])
+
   if (!gaugeData) {
     return (
       <div className="card px-5 py-4 flex items-center justify-center h-full min-h-[320px]">
@@ -84,44 +144,60 @@ export default function GaugeChart({ gaugeData }) {
 
   const { month, actuals, budget, le, actualsPct, lePct } = gaugeData
 
-  // Scale: bar chart showing absolute values with budget reference line
   const chartData = [
-    { name: 'Actuals',        value: actuals, color: '#6366f1', pct: actualsPct },
-    { name: 'Latest Est.',    value: le || 0, color: '#8b5cf6', pct: lePct      },
-    { name: 'Budget',         value: budget,  color: '#94a3b8', pct: 100        },
+    { name: 'Actuals',     value: actuals, color: '#6366f1', pct: actualsPct },
+    { name: 'Latest Est.', value: le || 0, color: '#8b5cf6', pct: lePct      },
+    { name: 'Budget',      value: budget,  color: '#94a3b8', pct: 100        },
   ]
 
   const maxVal = Math.max(actuals, budget, le || 0) * 1.12
 
-  // Status banner
-  const StatusIcon  = actualsPct >= 100 ? CheckCircle : actualsPct >= 80 ? AlertTriangle : XCircle
-  const statusBg    = actualsPct >= 100 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : actualsPct >= 80 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-600'
-  const statusMsg   = actualsPct >= 100
+  const StatusIcon = actualsPct >= 100 ? CheckCircle : actualsPct >= 80 ? AlertTriangle : XCircle
+  const statusBg   = actualsPct >= 100
+    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    : actualsPct >= 80
+    ? 'bg-amber-50 border-amber-200 text-amber-700'
+    : 'bg-red-50 border-red-200 text-red-600'
+  const statusMsg  = actualsPct >= 100
     ? `Budget achieved — Actuals ${(actualsPct - 100).toFixed(0)}% above target`
     : `${(100 - actualsPct).toFixed(0)}% below budget target for ${month}`
+
+  const selectCls = 'text-xs font-medium bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-brand-400 transition-all cursor-pointer text-slate-700'
 
   return (
     <div className="card px-5 py-4 flex flex-col gap-4 h-full">
       {/* Header */}
-      <div>
-        <h3 className="text-sm font-semibold text-slate-700">Actuals + LE vs Budget</h3>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Latest Actuals month: <span className="font-semibold text-slate-600">{month}</span>
-        </p>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700">Actuals + LE vs Budget</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Latest Actuals month: <span className="font-semibold text-slate-600">{month}</span>
+          </p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <select value={dimType} onChange={e => handleDimTypeChange(e.target.value)} className={selectCls}>
+            {DIM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          {dimType && (
+            <select value={dimValue} onChange={e => setDimValue(e.target.value)} className={selectCls}>
+              <option value="">— select —</option>
+              {dimValues.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* Progress bars */}
       <div className="flex flex-col gap-3">
         <ProgressBar label="Actuals"     value={actuals} budget={budget} color="#6366f1" pct={actualsPct} />
-        {le > 0 && <ProgressBar label="Latest Est." value={le}      budget={budget} color="#8b5cf6" pct={lePct} />}
-        {/* Budget reference row */}
+        {le > 0 && <ProgressBar label="Latest Est." value={le} budget={budget} color="#8b5cf6" pct={lePct} />}
         <div className="flex items-center justify-between text-xs pt-0.5 border-t border-slate-100">
           <span className="text-slate-400">Budget (100%)</span>
           <span className="font-bold text-slate-600">{fmt(budget)}</span>
         </div>
       </div>
 
-      {/* Bar chart — absolute value comparison */}
+      {/* Bar chart */}
       <div className="flex-1 min-h-[140px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 4, right: 12, bottom: 24, left: 8 }} barCategoryGap="30%">
@@ -133,8 +209,6 @@ export default function GaugeChart({ gaugeData }) {
             <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false}
               tickFormatter={fmt} width={64} domain={[0, maxVal]} />
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={budget} stroke="#6366f1" strokeDasharray="4 3" strokeWidth={1.5}
-              label={{ value: 'Budget', position: 'right', fontSize: 9, fill: '#6366f1' }} />
             <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={52}>
               {chartData.map((d, i) => (
                 <Cell key={i} fill={d.pct >= 100 ? '#10b981' : d.color} fillOpacity={0.85} />

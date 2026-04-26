@@ -87,7 +87,7 @@ async function callAPI(messages, systemContent) {
 // System prompt
 // ─────────────────────────────────────────────────────────────────────────────
 function buildSystemPrompt(summary, cubeContext, intentMeta) {
-  return `You are Profitability Intelligence — a specialized AI financial analyst for Lupin US pharmaceutical operations.
+  return `You are Fino — the AI financial analyst embedded in Lupin ProfitIQ, a specialized analytics platform for Lupin US pharmaceutical operations.
 
 DATASET OVERVIEW:
 - Rows: ${summary.rowCount.toLocaleString()} | Scenarios: ${summary.scenarios.join(', ')}

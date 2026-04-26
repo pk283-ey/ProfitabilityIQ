@@ -32,9 +32,10 @@ const CustomTooltip = ({ active, payload, label }) => {
 }
 
 const DIM_OPTIONS = [
-  { value: 'Therapy Area', label: 'Therapy Area' },
-  { value: 'Divison',      label: 'Division' },
-  { value: 'Dosage Form',  label: 'Dosage Form' },
+  { value: 'Therapy Area',  label: 'Therapy Area'  },
+  { value: 'Product Group', label: 'Product Group' },
+  { value: 'Divison',       label: 'Division'       },
+  { value: 'Dosage Form',   label: 'Dosage Form'    },
 ]
 
 export default function VarianceChart({ rawData, filters }) {

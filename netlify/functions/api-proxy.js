@@ -1,35 +1,27 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Netlify Function — API Proxy
-//
-// Runs server-side on Netlify's infrastructure.
-// Reads all API config from environment variables (never exposed to the browser).
-// Forwards the request body to the configured AI endpoint and returns the response.
-//
-// Triggered via:  POST /api-proxy  (redirected from netlify.toml)
-// ─────────────────────────────────────────────────────────────────────────────
+// Netlify serverless function — API proxy
+// Reads all config from server-side env vars so the API key is never
+// baked into the client JS bundle.
+// Triggered by: POST /api-proxy  (redirected via netlify.toml)
 
 exports.handler = async (event) => {
-  // Only allow POST
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' }
   }
 
-  // ── Read config from server-side environment variables ─────────────────────
-  const apiKey    = process.env.VITE_API_KEY           || ''
-  const endpoint  = process.env.VITE_API_ENDPOINT      || ''
-  const apiPath   = process.env.VITE_API_PATH          || ''
-  const apiFormat = process.env.VITE_API_FORMAT        || 'openai'
-  const authStyle = process.env.VITE_API_AUTH_HEADER   || 'bearer'
+  const apiKey    = process.env.VITE_API_KEY         || ''
+  const endpoint  = process.env.VITE_API_ENDPOINT    || ''
+  const apiPath   = process.env.VITE_API_PATH        || ''
+  const apiFormat = process.env.VITE_API_FORMAT      || 'openai'
+  const authStyle = process.env.VITE_API_AUTH_HEADER || 'bearer'
 
   if (!endpoint) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'VITE_API_ENDPOINT is not configured in Netlify environment variables.' }),
     }
   }
 
-  // ── Build target URL (mirrors resolveEndpoint in aiClient.js) ──────────────
+  // Build target URL — mirrors resolveEndpoint() in aiClient.js
   const base = endpoint.replace(/\/+$/, '')
   let target
   if (apiPath) {
@@ -40,36 +32,33 @@ exports.handler = async (event) => {
     target = `${base}/chat/completions`
   }
 
-  // ── Build auth header (mirrors buildAuthHeaders in aiClient.js) ────────────
-  const authHeaders =
+  // Build auth header — mirrors buildAuthHeaders() in aiClient.js
+  const authHeader =
     authStyle === 'api-key'   ? { 'api-key':       apiKey } :
     authStyle === 'x-api-key' ? { 'x-api-key':     apiKey } :
-    /* bearer default */        { 'Authorization': `Bearer ${apiKey}` }
+                                { 'Authorization': `Bearer ${apiKey}` }
 
-  // ── Forward request to AI endpoint ─────────────────────────────────────────
   try {
-    const response = await fetch(target, {
+    const upstream = await fetch(target, {
       method:  'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...authHeaders,
+        ...authHeader,
         ...(apiFormat === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {}),
       },
       body: event.body,
     })
 
-    const text = await response.text()
+    const text = await upstream.text()
     return {
-      statusCode: response.status,
+      statusCode: upstream.status,
       headers:    { 'Content-Type': 'application/json' },
       body:       text,
     }
   } catch (err) {
-    console.error('[api-proxy] Fetch error:', err)
     return {
       statusCode: 502,
-      headers:    { 'Content-Type': 'application/json' },
-      body:       JSON.stringify({ error: `Proxy fetch error: ${err.message}` }),
+      body: JSON.stringify({ error: `Proxy error: ${err.message}` }),
     }
   }
 }

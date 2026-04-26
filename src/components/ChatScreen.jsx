@@ -155,7 +155,7 @@ export default function ChatScreen({ parsedData, onBack }) {
         <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
           <Sparkles size={13} className="text-white" />
         </div>
-        <span className="text-sm font-semibold text-slate-800">Profitability Intelligence</span>
+        <span className="text-sm font-semibold text-slate-800">Lupin ProfitIQ — Ask Fino</span>
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
           <FileSpreadsheet size={12} />

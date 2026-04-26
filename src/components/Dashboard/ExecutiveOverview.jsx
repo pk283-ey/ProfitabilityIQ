@@ -71,11 +71,11 @@ export default function ExecutiveOverview({ rawData, filters }) {
   }
 
   const { tailwinds, headwinds, revenueDriver, totalPriceVar, totalVolVar, gapToBudget } = data
-  const { ta: twTA, pg: twPG } = tailwinds
-  const { pg: hwPG, ta: hwTA } = headwinds
+  const { pg1: twPG1, pg2: twPG2 } = tailwinds
+  const { pg1: hwPG1, pg2: hwPG2 } = headwinds
 
-  const hasTailwinds = twTA || twPG
-  const hasHeadwinds = hwPG || hwTA
+  const hasTailwinds = !!(twPG1 || twPG2)
+  const hasHeadwinds = !!(hwPG1 || hwPG2)
 
   // ── Revenue driver pill ───────────────────────────────────────────────────
   const driverLabel = revenueDriver === 'price-led' ? 'Price-led growth' : 'Volume-led growth'
@@ -121,9 +121,9 @@ export default function ExecutiveOverview({ rawData, filters }) {
       {/* ── Two-column body ───────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row gap-3">
 
-        {/* Tailwinds */}
+        {/* Value Drivers */}
         <Column
-          title="Tailwinds"
+          title="Value Drivers"
           icon={TrendingUp}
           iconClass="text-emerald-700"
           borderClass="border-emerald-200"
@@ -131,30 +131,30 @@ export default function ExecutiveOverview({ rawData, filters }) {
         >
           {hasTailwinds ? (
             <>
-              {twTA && (
+              {twPG1 && (
                 <Bullet color="green">
-                  <strong>{trim(twTA.name)}</strong> leading volume growth:{' '}
-                  <strong>{fmtDelta(twTA.volVar)}</strong> vol var
-                  {twTA.volVarPct !== 0 && ` (${fmtPct(twTA.volVarPct)} vs Budget)`}
+                  <strong>{trim(twPG1.name)}</strong> vs Budget:{' '}
+                  {twPG1.priceVar > 0 && <>price variance <strong>{fmtDelta(twPG1.priceVar)}</strong></>}
+                  {twPG1.priceVar > 0 && twPG1.mPctExpBps > 0 && ' · '}
+                  {twPG1.mPctExpBps > 0 && <>margin expansion <strong>{fmtBps(twPG1.mPctExpBps)}</strong> vs Budget</>}
                 </Bullet>
               )}
-              {twPG && (
+              {twPG2 && (
                 <Bullet color="green">
-                  <strong>{trim(twPG.name)}</strong> margin expansion:{' '}
-                  {twPG.priceVar > 0 && <><strong>{fmtDelta(twPG.priceVar)}</strong> price var</>}
-                  {twPG.priceVar > 0 && twPG.mPctExpBps > 0 && ' · '}
-                  {twPG.mPctExpBps > 0 && <><strong>{fmtBps(twPG.mPctExpBps)}</strong> margin expansion</>}
+                  <strong>{trim(twPG2.name)}</strong> vs Budget: volume growth{' '}
+                  <strong>{fmtDelta(twPG2.volVar)}</strong>
+                  {twPG2.volVarPct !== 0 && <> ({fmtPct(twPG2.volVarPct)} vs Budget)</>}
                 </Bullet>
               )}
             </>
           ) : (
-            <li className="text-xs text-emerald-600 italic">No significant tailwinds detected.</li>
+            <li className="text-xs text-emerald-600 italic">No significant value drivers vs Budget.</li>
           )}
         </Column>
 
-        {/* Headwinds */}
+        {/* Value Eroders */}
         <Column
-          title="Headwinds"
+          title="Value Eroders"
           icon={TrendingDown}
           iconClass="text-red-700"
           borderClass="border-red-200"
@@ -162,23 +162,23 @@ export default function ExecutiveOverview({ rawData, filters }) {
         >
           {hasHeadwinds ? (
             <>
-              {hwPG && (
+              {hwPG1 && (
                 <Bullet color="red">
-                  <strong>{trim(hwPG.name)}</strong> profit erosion:{' '}
-                  <strong>{fmtDelta(hwPG.cogmVar)}</strong> COGM variance
-                  {hwPG.mPctExpBps < 0 && ` · margin ${fmtBps(hwPG.mPctExpBps)}`}
+                  <strong>{trim(hwPG1.name)}</strong> vs Budget: COGM cost overrun{' '}
+                  <strong>{fmtDelta(hwPG1.cogmVar)}</strong>
+                  {hwPG1.mPctExpBps < 0 && <> · margin compression <strong>{fmtBps(hwPG1.mPctExpBps)}</strong> vs Budget</>}
                 </Bullet>
               )}
-              {hwTA && (
+              {hwPG2 && (
                 <Bullet color="red">
-                  <strong>{trim(hwTA.name)}</strong> volume underperformance:{' '}
-                  <strong>{fmtDelta(hwTA.volVar)}</strong>
-                  {hwTA.volVarPct !== 0 && ` (${fmtPct(hwTA.volVarPct)} vs Budget)`}
+                  <strong>{trim(hwPG2.name)}</strong> vs Budget: volume shortfall{' '}
+                  <strong>{fmtDelta(hwPG2.volVar)}</strong>
+                  {hwPG2.volVarPct !== 0 && <> ({fmtPct(hwPG2.volVarPct)} vs Budget)</>}
                 </Bullet>
               )}
             </>
           ) : (
-            <li className="text-xs text-red-600 italic">No significant headwinds detected.</li>
+            <li className="text-xs text-red-600 italic">No significant value eroders vs Budget.</li>
           )}
         </Column>
 
