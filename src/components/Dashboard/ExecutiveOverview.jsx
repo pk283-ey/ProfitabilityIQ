@@ -10,13 +10,15 @@ function fmtDelta(n) {
   if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`
   return `${sign}$${abs.toFixed(0)}`
 }
+function fmtAbs(n) {
+  const abs = Math.abs(n)
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
+  if (abs >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toFixed(0)}`
+}
 function fmtPct(n, decimals = 1) {
   const sign = n >= 0 ? '+' : '−'
   return `${sign}${Math.abs(n).toFixed(decimals)}%`
-}
-function fmtBps(n) {
-  const sign = n >= 0 ? '+' : '−'
-  return `${sign}${Math.abs(Math.round(n))} bps`
 }
 function trim(s, max = 28) {
   if (!s) return ''
@@ -34,7 +36,7 @@ function Bullet({ color, children }) {
   )
 }
 
-// ── Column (Tailwinds or Headwinds) ───────────────────────────────────────────
+// ── Column (Value Drivers / Value Eroders) ────────────────────────────────────
 function Column({ title, icon: Icon, iconClass, borderClass, bgClass, children }) {
   return (
     <div className={`flex-1 rounded-xl border ${borderClass} ${bgClass} px-4 py-3 flex flex-col gap-2`}>
@@ -54,23 +56,30 @@ export default function ExecutiveOverview({ rawData, filters }) {
   const data = useMemo(
     () => computeExecutiveSummary(rawData, filters),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawData, filters.sbu, filters.year, filters.fiscalQuarter],
+    [rawData, filters.sbu, filters.year, filters.fiscalQuarter, filters.scenario],
   )
 
-  // ── No variance data available ────────────────────────────────────────────
+  // ── No data available ─────────────────────────────────────────────────────
   if (!data) {
+    const isActuals = filters.scenario === 'Actuals'
+    const hint = isActuals
+      ? 'YoY/QoQ comparison requires Actuals data for the selected period and the prior period.'
+      : 'Executive summary requires both Actuals and Budgeted data for the selected filters.'
     return (
       <div className="card px-5 py-4 border-l-4 border-brand-500 flex items-center gap-3">
         <Zap size={15} className="text-brand-500 shrink-0" />
-        <p className="text-xs text-slate-500">
-          Executive summary requires both <strong>Actuals</strong> and <strong>Budgeted</strong> data
-          for the selected filters.
-        </p>
+        <p className="text-xs text-slate-500">{hint}</p>
       </div>
     )
   }
 
-  const { tailwinds, headwinds, revenueDriver, totalPriceVar, totalVolVar, gapToBudget } = data
+  const {
+    comparisonMode, comparisonLabel,
+    tailwinds, headwinds,
+    revenueDriver, totalPriceVar, totalVolVar,
+    gapToBudget,
+  } = data
+
   const { pg1: twPG1, pg2: twPG2 } = tailwinds
   const { pg1: hwPG1, pg2: hwPG2 } = headwinds
 
@@ -83,11 +92,16 @@ export default function ExecutiveOverview({ rawData, filters }) {
     ? 'bg-violet-50 text-violet-700 border-violet-200'
     : 'bg-sky-50 text-sky-700 border-sky-200'
 
-  // ── Gap to Budget pill ────────────────────────────────────────────────────
-  const gapColor = !gapToBudget ? 'bg-slate-50 text-slate-500 border-slate-200'
+  // ── Gap to Budget pill (vs_budget mode only) ──────────────────────────────
+  const gapColor = !gapToBudget ? ''
     : gapToBudget.pct >= 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
     : gapToBudget.pct >= 85  ? 'bg-amber-50 text-amber-700 border-amber-200'
     : 'bg-red-50 text-red-700 border-red-200'
+
+  // ── Mode context tag ──────────────────────────────────────────────────────
+  const modeTag = comparisonMode === 'yoy' ? 'YoY Analysis'
+    : comparisonMode === 'qoq' ? 'QoQ Analysis'
+    : null
 
   return (
     <div className="card px-5 py-4 border-l-4 border-brand-500 flex flex-col gap-3">
@@ -101,6 +115,11 @@ export default function ExecutiveOverview({ rawData, filters }) {
           <span className="text-xs font-bold text-brand-700 uppercase tracking-wider">
             Executive Control Centre
           </span>
+          {modeTag && (
+            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+              {modeTag}
+            </span>
+          )}
         </div>
 
         {/* Signal pills */}
@@ -133,22 +152,22 @@ export default function ExecutiveOverview({ rawData, filters }) {
             <>
               {twPG1 && (
                 <Bullet color="green">
-                  <strong>{trim(twPG1.name)}</strong> vs Budget:{' '}
-                  {twPG1.priceVar > 0 && <>price variance <strong>{fmtDelta(twPG1.priceVar)}</strong></>}
-                  {twPG1.priceVar > 0 && twPG1.mPctExpBps > 0 && ' · '}
-                  {twPG1.mPctExpBps > 0 && <>margin expansion <strong>{fmtBps(twPG1.mPctExpBps)}</strong> vs Budget</>}
+                  <strong>{trim(twPG1.name)}</strong> {comparisonLabel}:{' '}
+                  margin <strong>{twPG1.actMPct.toFixed(1)}%</strong> vs {twPG1.refMPct.toFixed(1)}%
+                  &nbsp;· actuals <strong>{fmtAbs(twPG1.actSales)}</strong> vs {fmtAbs(twPG1.refSales)}
                 </Bullet>
               )}
               {twPG2 && (
                 <Bullet color="green">
-                  <strong>{trim(twPG2.name)}</strong> vs Budget: volume growth{' '}
-                  <strong>{fmtDelta(twPG2.volVar)}</strong>
-                  {twPG2.volVarPct !== 0 && <> ({fmtPct(twPG2.volVarPct)} vs Budget)</>}
+                  <strong>{trim(twPG2.name)}</strong> {comparisonLabel}:{' '}
+                  volume growth <strong>{fmtPct(twPG2.volGrowthPct)}</strong>
+                  &nbsp;· sales <strong>{fmtAbs(twPG2.actSales)}</strong> vs {fmtAbs(twPG2.refSales)}{' '}
+                  (<strong>{fmtDelta(twPG2.salesGrowth)}</strong>)
                 </Bullet>
               )}
             </>
           ) : (
-            <li className="text-xs text-emerald-600 italic">No significant value drivers vs Budget.</li>
+            <li className="text-xs text-emerald-600 italic">No significant value drivers for the selected period.</li>
           )}
         </Column>
 
@@ -164,21 +183,22 @@ export default function ExecutiveOverview({ rawData, filters }) {
             <>
               {hwPG1 && (
                 <Bullet color="red">
-                  <strong>{trim(hwPG1.name)}</strong> vs Budget: COGM cost overrun{' '}
-                  <strong>{fmtDelta(hwPG1.cogmVar)}</strong>
-                  {hwPG1.mPctExpBps < 0 && <> · margin compression <strong>{fmtBps(hwPG1.mPctExpBps)}</strong> vs Budget</>}
+                  <strong>{trim(hwPG1.name)}</strong> {comparisonLabel}:{' '}
+                  margin <strong>{hwPG1.actMPct.toFixed(1)}%</strong> vs {hwPG1.refMPct.toFixed(1)}%
+                  &nbsp;· actuals <strong>{fmtAbs(hwPG1.actSales)}</strong> vs {fmtAbs(hwPG1.refSales)}
                 </Bullet>
               )}
               {hwPG2 && (
                 <Bullet color="red">
-                  <strong>{trim(hwPG2.name)}</strong> vs Budget: volume shortfall{' '}
-                  <strong>{fmtDelta(hwPG2.volVar)}</strong>
-                  {hwPG2.volVarPct !== 0 && <> ({fmtPct(hwPG2.volVarPct)} vs Budget)</>}
+                  <strong>{trim(hwPG2.name)}</strong> {comparisonLabel}:{' '}
+                  volume shortfall <strong>{fmtPct(hwPG2.volGrowthPct)}</strong>
+                  &nbsp;· sales <strong>{fmtAbs(hwPG2.actSales)}</strong> vs {fmtAbs(hwPG2.refSales)}{' '}
+                  (<strong>{fmtDelta(hwPG2.salesGrowth)}</strong>)
                 </Bullet>
               )}
             </>
           ) : (
-            <li className="text-xs text-red-600 italic">No significant value eroders vs Budget.</li>
+            <li className="text-xs text-red-600 italic">No significant value eroders for the selected period.</li>
           )}
         </Column>
 

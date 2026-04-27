@@ -8,7 +8,6 @@ import TrendChart       from './TrendChart.jsx'
 import GaugeChart       from './GaugeChart.jsx'
 import BubbleChart      from './BubbleChart.jsx'
 import PieBreakdown     from './PieBreakdown.jsx'
-import VarianceChart    from './VarianceChart.jsx'
 import { filterData, computeDashboardData, getFilterOptions } from '../../lib/dashboardAggregator.js'
 
 // Each pair of charts in the same row must have the same min height
@@ -109,14 +108,9 @@ export default function Dashboard({ parsedData, onNavigateToChat, onBack }) {
           </div>
         </div>
 
-        {/* Row 3: Bubble (3/5) + Variance (2/5) — equal stretch */}
-        <div className={`grid grid-cols-1 xl:grid-cols-5 gap-6 items-stretch ${ROW_MIN_H}`}>
-          <div className="xl:col-span-3 flex flex-col">
-            <BubbleChart bubble={dashData.bubble} />
-          </div>
-          <div className="xl:col-span-2 flex flex-col">
-            <VarianceChart rawData={rawData} filters={filters} />
-          </div>
+        {/* Row 3: Bubble — full width, explicit height so h-full chain resolves */}
+        <div className="h-[480px]">
+          <BubbleChart bubble={dashData.bubble} />
         </div>
 
         <div className="h-8" />

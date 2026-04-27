@@ -232,106 +232,113 @@ export function computeDashboardData(filteredData, rawData, filters) {
   }
 }
 
-// ── Executive Summary (pure JS — no API call) ─────────────────────────────────
-// Always ignores the scenario filter so it can compare Actuals vs Budgeted.
-export function computeExecutiveSummary(rawData, filters) {
-  // ── Base filter: SBU + FiscalYear + Quarter only (never Scenario) ────────────
+// ── Executive Summary — shared helpers ───────────────────────────────────────
+
+function _aggBy(rows, dim) {
+  const map = {}
+  for (const row of rows) {
+    const k = row[dim] || 'Unknown'
+    if (!map[k]) map[k] = { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
+    map[k].Sales  += Number(row['Sales'])        || 0
+    map[k].Volume += Number(row['Sales Volume']) || 0
+    map[k].COGM   += Number(row['COGM'])         || 0
+    map[k].Margin += Number(row['Margin'])       || 0
+  }
+  return map
+}
+
+// Build per-PG comparison metrics — only PGs with non-zero Sales in BOTH periods
+function _buildPGMetrics(curRows, refRows) {
+  const curByPG = _aggBy(curRows, 'Product Group')
+  const refByPG = _aggBy(refRows, 'Product Group')
+  const keys = [...new Set([...Object.keys(curByPG), ...Object.keys(refByPG)])]
+  return keys.map(k => {
+    const c = curByPG[k] || { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
+    const r = refByPG[k] || { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
+    if (!(c.Sales > 0 && r.Sales > 0)) return null   // must be non-zero in both
+    const actMPct    = c.Sales > 0 ? c.Margin / c.Sales * 100 : 0
+    const refMPct    = r.Sales > 0 ? r.Margin / r.Sales * 100 : 0
+    const mGrowthBps = (actMPct - refMPct) * 100
+    const volGrowth  = c.Volume - r.Volume
+    const salesGrowth = c.Sales - r.Sales
+    return {
+      name: k,
+      actMPct, refMPct,
+      mGrowthBps,
+      mGrowthPpt:    actMPct - refMPct,
+      actMargin:     c.Margin,  refMargin:  r.Margin,
+      actVol:        c.Volume,  refVol:     r.Volume,
+      volGrowth,
+      volGrowthPct:  r.Volume > 0 ? volGrowth / r.Volume * 100 : 0,
+      actSales:      c.Sales,   refSales:   r.Sales,
+      salesGrowth,
+      salesGrowthPct: r.Sales > 0 ? salesGrowth / r.Sales * 100 : 0,
+    }
+  }).filter(Boolean)
+}
+
+// Pick top 2 drivers + top 2 eroders from PG metrics list
+function _selectLeaders(pgMetrics) {
+  // Driver 1: highest margin growth (bps)
+  const twPG1 = [...pgMetrics]
+    .sort((a, b) => b.mGrowthBps - a.mGrowthBps)
+    .find(r => r.mGrowthBps > 0) || null
+  // Driver 2: highest volume growth % (different PG)
+  const twPG2 = [...pgMetrics]
+    .filter(r => r.volGrowth > 0 && r.name !== twPG1?.name)
+    .sort((a, b) => b.volGrowthPct - a.volGrowthPct)[0] || null
+  // Eroder 1: lowest margin (most negative bps)
+  const hwPG1 = [...pgMetrics]
+    .sort((a, b) => a.mGrowthBps - b.mGrowthBps)
+    .find(r => r.mGrowthBps < 0) || null
+  // Eroder 2: lowest volume % (different PG)
+  const hwPG2 = [...pgMetrics]
+    .filter(r => r.volGrowth < 0 && r.name !== hwPG1?.name)
+    .sort((a, b) => a.volGrowthPct - b.volGrowthPct)[0] || null
+  return { tailwinds: { pg1: twPG1, pg2: twPG2 }, headwinds: { pg1: hwPG1, pg2: hwPG2 } }
+}
+
+// Compute price-led vs volume-led split between two sets of rows
+function _revenueDriver(curRows, refRows) {
+  const curSales = sum(curRows, 'Sales')
+  const curVol   = sum(curRows, 'Sales Volume')
+  const refSales = sum(refRows, 'Sales')
+  const refVol   = sum(refRows, 'Sales Volume')
+  const curASP   = curVol > 0 ? curSales / curVol : 0
+  const refASP   = refVol > 0 ? refSales / refVol : 0
+  const priceVar = (curASP - refASP) * curVol
+  const volVar   = (curVol - refVol) * refASP
+  return {
+    revenueDriver: Math.abs(priceVar) >= Math.abs(volVar) ? 'price-led' : 'volume-led',
+    totalPriceVar: priceVar,
+    totalVolVar:   volVar,
+  }
+}
+
+// ── Mode A: Actuals vs Budget (default) ──────────────────────────────────────
+function _summaryVsBudget(rawData, filters) {
   const baseData = rawData.filter(row => {
-    if (filters.sbu          !== 'All' && row['SBU']               !== filters.sbu)          return false
-    if (filters.year         !== 'All' && String(row['FiscalYear']) !== String(filters.year))  return false
-    if (filters.fiscalQuarter !== 'All'&& row['FiscalQuarter']      !== filters.fiscalQuarter) return false
+    if (filters.sbu           !== 'All' && row['SBU']               !== filters.sbu)          return false
+    if (filters.year          !== 'All' && String(row['FiscalYear']) !== String(filters.year))  return false
+    if (filters.fiscalQuarter !== 'All' && row['FiscalQuarter']     !== filters.fiscalQuarter) return false
     return true
   })
-
   const actRows = baseData.filter(r => r.Scenario === 'Actuals')
   const budRows = baseData.filter(r => r.Scenario === 'Budgeted')
-  if (actRows.length === 0 || budRows.length === 0) return null
+  if (!actRows.length || !budRows.length) return null
 
-  // ── Aggregate raw rows by a dimension key ────────────────────────────────────
-  function aggBy(rows, dim) {
-    const map = {}
-    for (const row of rows) {
-      const k = row[dim] || 'Unknown'
-      if (!map[k]) map[k] = { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
-      map[k].Sales  += Number(row['Sales'])        || 0
-      map[k].Volume += Number(row['Sales Volume']) || 0
-      map[k].COGM   += Number(row['COGM'])         || 0
-      map[k].Margin += Number(row['Margin'])       || 0
-    }
-    return map
-  }
+  const pgMetrics = _buildPGMetrics(actRows, budRows)
+  const leaders   = _selectLeaders(pgMetrics)
+  const driver    = _revenueDriver(actRows, budRows)
 
-  // ── Compute variance rows for every group within a dimension ─────────────────
-  function computeVars(actMap, budMap) {
-    const keys = [...new Set([...Object.keys(actMap), ...Object.keys(budMap)])]
-    return keys.map(k => {
-      const a = actMap[k] || { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
-      const b = budMap[k] || { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
-
-      const ASP_a  = a.Volume > 0 ? a.Sales  / a.Volume : 0
-      const ASP_b  = b.Volume > 0 ? b.Sales  / b.Volume : 0
-      const UC_a   = a.Volume > 0 ? a.COGM   / a.Volume : 0
-      const UC_b   = b.Volume > 0 ? b.COGM   / b.Volume : 0
-
-      const priceVar   = (ASP_a - ASP_b)       * a.Volume           // $ price effect
-      const volVar     = (a.Volume - b.Volume)  * ASP_b             // $ volume effect
-      const cogmVar    = (UC_b   - UC_a)        * a.Volume           // $ cost var (positive = favourable)
-      const mPctAct    = a.Sales > 0 ? a.Margin / a.Sales * 100 : 0
-      const mPctBud    = b.Sales > 0 ? b.Margin / b.Sales * 100 : 0
-      const mPctExpBps = (mPctAct - mPctBud) * 100                  // basis points
-
-      return {
-        name: k,
-        actSales: a.Sales,  budSales: b.Sales,
-        actVol:   a.Volume, budVol:   b.Volume,
-        priceVar, volVar, cogmVar,
-        mPctAct, mPctBud, mPctExpBps,
-        volVarPct: b.Volume > 0 ? (a.Volume - b.Volume) / b.Volume * 100 : 0,
-      }
-    }).filter(r => r.budSales > 0 || r.actSales > 0)
-  }
-
-  const taVars = computeVars(aggBy(actRows, 'Therapy Area'), aggBy(budRows, 'Therapy Area'))
-  const pgVars = computeVars(aggBy(actRows, 'Product Group'), aggBy(budRows, 'Product Group'))
-
-  // ── Value Drivers — top 2 PGs ────────────────────────────────────────────────
-  // Driver 1: best price var + margin expansion
-  const pgByDriver = [...pgVars]
-    .filter(r => r.priceVar > 0 || r.mPctExpBps > 0)
-    .sort((a, b) => (b.priceVar + b.mPctExpBps * 1e4) - (a.priceVar + a.mPctExpBps * 1e4))
-  const twPG1 = pgByDriver[0] || null
-
-  // Driver 2: best PG by volume var (different product from twPG1)
-  const pgByVolDriver = [...pgVars]
-    .filter(r => r.volVar > 0 && r.name !== twPG1?.name)
-    .sort((a, b) => b.volVar - a.volVar)
-  const twPG2 = pgByVolDriver[0] || pgByDriver[1] || null
-
-  // ── Value Eroders — top 2 PGs ─────────────────────────────────────────────────
-  // Eroder 1: worst COGM pressure (cost overrun)
-  const pgByCOGM = [...pgVars].sort((a, b) => a.cogmVar - b.cogmVar)
-  const hwPG1 = pgByCOGM.find(r => r.cogmVar < 0) || null
-
-  // Eroder 2: worst vol var (different product from hwPG1)
-  const pgByVolEroder = [...pgVars]
-    .filter(r => r.volVar < 0 && r.name !== hwPG1?.name)
-    .sort((a, b) => a.volVar - b.volVar)
-  const hwPG2 = pgByVolEroder[0] || pgByCOGM[1] || null
-
-  // ── Revenue driver (total across all therapy areas) ──────────────────────────
-  const totalPriceVar = taVars.reduce((s, r) => s + r.priceVar, 0)
-  const totalVolVar   = taVars.reduce((s, r) => s + r.volVar,   0)
-  const revenueDriver = Math.abs(totalPriceVar) >= Math.abs(totalVolVar) ? 'price-led' : 'volume-led'
-
-  // ── Gap to Budget — latest Actuals month (option B) ──────────────────────────
+  // Gap to budget — latest Actuals month
+  const latestMonth = MONTH_ORDER
+    .filter(m => actRows.some(r => r.MonthName === m))
+    .pop() || null
   let gapToBudget = null
-  const actualsMonths = actRows.map(r => r.MonthName).filter(Boolean)
-  const latestMonth   = MONTH_ORDER.filter(m => actualsMonths.includes(m)).pop() || null
   if (latestMonth) {
-    const mAct = actRows.filter(r => r.MonthName === latestMonth)
-    const mBud = budRows.filter(r => r.MonthName === latestMonth)
-    const mActSales = mAct.reduce((s, r) => s + (Number(r['Sales']) || 0), 0)
-    const mBudSales = mBud.reduce((s, r) => s + (Number(r['Sales']) || 0), 0)
+    const mActSales = sum(actRows.filter(r => r.MonthName === latestMonth), 'Sales')
+    const mBudSales = sum(budRows.filter(r => r.MonthName === latestMonth), 'Sales')
     gapToBudget = {
       month:   latestMonth,
       actuals: mActSales,
@@ -341,14 +348,86 @@ export function computeExecutiveSummary(rawData, filters) {
     }
   }
 
-  return {
-    tailwinds: { pg1: twPG1, pg2: twPG2 },
-    headwinds: { pg1: hwPG1, pg2: hwPG2 },
-    revenueDriver,
-    totalPriceVar,
-    totalVolVar,
-    gapToBudget,
-  }
+  return { comparisonMode: 'vs_budget', comparisonLabel: 'vs Budget', ...leaders, ...driver, gapToBudget }
+}
+
+// ── Mode B: Actuals YoY ───────────────────────────────────────────────────────
+function _summaryYoY(rawData, filters) {
+  const baseAct = rawData.filter(r =>
+    r.Scenario === 'Actuals' && (filters.sbu === 'All' || r['SBU'] === filters.sbu)
+  )
+  const allYears  = [...new Set(baseAct.map(r => String(r['FiscalYear'])).filter(Boolean))].sort()
+  const curYear   = filters.year !== 'All' ? String(filters.year) : (allYears[allYears.length - 1] || null)
+  if (!curYear) return null
+  const prevYear  = String(Number(curYear) - 1)
+
+  const rowsFor = (yr) => baseAct.filter(r => String(r['FiscalYear']) === yr)
+  const curRows  = rowsFor(curYear)
+  const prevRows = rowsFor(prevYear)
+  if (!curRows.length || !prevRows.length) return null
+
+  const pgMetrics = _buildPGMetrics(curRows, prevRows)
+  const leaders   = _selectLeaders(pgMetrics)
+  const driver    = _revenueDriver(curRows, prevRows)
+
+  return { comparisonMode: 'yoy', comparisonLabel: `vs FY${prevYear}`, ...leaders, ...driver, gapToBudget: null }
+}
+
+// ── Mode C: Actuals QoQ ───────────────────────────────────────────────────────
+function _summaryQoQ(rawData, filters) {
+  const QTRS = ['FQ1','FQ2','FQ3','FQ4']
+  const curQIdx = QTRS.indexOf(filters.fiscalQuarter)
+  if (curQIdx < 0) return null
+  const prevQtr  = curQIdx === 0 ? 'FQ4' : QTRS[curQIdx - 1]
+  const prevYear = curQIdx === 0 ? String(Number(filters.year) - 1) : String(filters.year)
+
+  const rowsFor = (yr, qtr) => rawData.filter(row =>
+    row.Scenario === 'Actuals' &&
+    (filters.sbu === 'All' || row['SBU'] === filters.sbu) &&
+    String(row['FiscalYear']) === yr &&
+    row['FiscalQuarter'] === qtr
+  )
+  const curRows  = rowsFor(String(filters.year), filters.fiscalQuarter)
+  const prevRows = rowsFor(prevYear, prevQtr)
+  if (!curRows.length || !prevRows.length) return null
+
+  const pgMetrics = _buildPGMetrics(curRows, prevRows)
+  const leaders   = _selectLeaders(pgMetrics)
+  const driver    = _revenueDriver(curRows, prevRows)
+
+  return { comparisonMode: 'qoq', comparisonLabel: `vs ${prevQtr}`, ...leaders, ...driver, gapToBudget: null }
+}
+
+// ── Executive Summary — public entry point ────────────────────────────────────
+export function computeExecutiveSummary(rawData, filters) {
+  const isActuals = filters.scenario === 'Actuals'
+  const hasYear   = filters.year          !== 'All'
+  const hasQtr    = filters.fiscalQuarter !== 'All'
+
+  // Get mode-specific tailwinds / headwinds / gapToBudget
+  let result
+  if (isActuals && hasYear && hasQtr) result = _summaryQoQ(rawData, filters)
+  else if (isActuals)                  result = _summaryYoY(rawData, filters)
+  else                                 result = _summaryVsBudget(rawData, filters)
+  if (!result) return null
+
+  // Revenue driver pill is ALWAYS Actuals vs Budget for the selected SBU/Year/Quarter,
+  // independent of the scenario dropdown.
+  // Price effect = (Actual ASP − Budget ASP) × Actual Volume
+  // Volume effect = (Actual Volume − Budget Volume) × Budget ASP
+  const baseData = rawData.filter(row => {
+    if (filters.sbu           !== 'All' && row['SBU']               !== filters.sbu)          return false
+    if (filters.year          !== 'All' && String(row['FiscalYear']) !== String(filters.year))  return false
+    if (filters.fiscalQuarter !== 'All' && row['FiscalQuarter']     !== filters.fiscalQuarter) return false
+    return true
+  })
+  const actRows = baseData.filter(r => r.Scenario === 'Actuals')
+  const budRows = baseData.filter(r => r.Scenario === 'Budgeted')
+  const pillDriver = actRows.length && budRows.length
+    ? _revenueDriver(actRows, budRows)
+    : { revenueDriver: result.revenueDriver, totalPriceVar: result.totalPriceVar, totalVolVar: result.totalVolVar }
+
+  return { ...result, ...pillDriver }
 }
 
 // ── Build a compact text summary for the AI Executive Overview ────────────────
