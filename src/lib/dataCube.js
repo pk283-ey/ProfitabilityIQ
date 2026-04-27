@@ -228,7 +228,7 @@ export function formatCubeContext(data, analysisType, groupDims) {
   if (analysisType === 'variance') {
     const lines = [
       'VARIANCE DATA (Actuals vs Budgeted) — source: pre-computed from raw data, do not derive:',
-      `Columns: ${groupDims.join(', ') || 'TOTAL'} | Actuals Sales | Budget Sales | Sales Var $ | Sales Var % | Price Effect | Volume Effect | Actuals Margin | Budget Margin | Margin Var $ | Actuals COGM | Budget COGM | COGM Var $`,
+      `Columns: ${groupDims.join(', ') || 'TOTAL'} | Actuals Sales | Budget Sales | Sales Var $ | Sales Var % | Price Effect | Volume Effect $ | Actuals Vol (units) | Budget Vol (units) | Vol Unit Var | Actuals Margin | Budget Margin | Margin Var $ | Actuals COGM | Budget COGM | COGM Var $`,
       '',
     ]
     for (const r of data) {
@@ -238,7 +238,9 @@ export function formatCubeContext(data, analysisType, groupDims) {
         `${dimLabel}:` +
         ` Act Sales=${fmtN(r.Actuals.Sales)} Bud Sales=${fmtN(r.Budgeted.Sales)}` +
         ` SalesVar=${fv(sv.TotalVar, sv.Favourable)} (${sv.PctVar > 0 ? '+' : ''}${sv.PctVar}%)` +
-        ` PriceEff=${fv(sv.PriceEffect, sv.PriceEffect >= 0)} VolEff=${fv(sv.VolumeEffect, sv.VolumeEffect >= 0)}` +
+        ` PriceEff=${fv(sv.PriceEffect, sv.PriceEffect >= 0)} VolumeEff=${fv(sv.VolumeEffect, sv.VolumeEffect >= 0)}` +
+        ` | Act Vol(units)=${Math.round(r.Actuals.Volume).toLocaleString()} Bud Vol(units)=${Math.round(r.Budgeted.Volume).toLocaleString()}` +
+        ` VolUnitVar=${r.Actuals.Volume - r.Budgeted.Volume >= 0 ? '+' : ''}${Math.round(r.Actuals.Volume - r.Budgeted.Volume).toLocaleString()} (${r.Budgeted.Volume > 0 ? ((r.Actuals.Volume - r.Budgeted.Volume) / r.Budgeted.Volume * 100).toFixed(1) : '—'}%)` +
         ` | Act Margin=${fmtN(r.Actuals.Margin)} Bud Margin=${fmtN(r.Budgeted.Margin)}` +
         ` MarginVar=${fv(mv.TotalVar, mv.Favourable)}` +
         ` | Act COGM=${fmtN(r.Actuals.COGM)} Bud COGM=${fmtN(r.Budgeted.COGM)}` +

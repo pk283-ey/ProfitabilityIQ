@@ -277,25 +277,31 @@ function _buildPGMetrics(curRows, refRows) {
   }).filter(Boolean)
 }
 
-// Pick top 2 drivers + top 2 eroders from PG metrics list
+// Pick top 3 drivers + top 3 eroders — one per metric (margin%, net sales, volume)
+// Each category independently selects the best/worst PG; the same PG can appear in multiple.
 function _selectLeaders(pgMetrics) {
-  // Driver 1: highest margin growth (bps)
-  const twPG1 = [...pgMetrics]
-    .sort((a, b) => b.mGrowthBps - a.mGrowthBps)
-    .find(r => r.mGrowthBps > 0) || null
-  // Driver 2: highest volume growth % (different PG)
-  const twPG2 = [...pgMetrics]
-    .filter(r => r.volGrowth > 0 && r.name !== twPG1?.name)
-    .sort((a, b) => b.volGrowthPct - a.volGrowthPct)[0] || null
-  // Eroder 1: lowest margin (most negative bps)
-  const hwPG1 = [...pgMetrics]
-    .sort((a, b) => a.mGrowthBps - b.mGrowthBps)
-    .find(r => r.mGrowthBps < 0) || null
-  // Eroder 2: lowest volume % (different PG)
-  const hwPG2 = [...pgMetrics]
-    .filter(r => r.volGrowth < 0 && r.name !== hwPG1?.name)
-    .sort((a, b) => a.volGrowthPct - b.volGrowthPct)[0] || null
-  return { tailwinds: { pg1: twPG1, pg2: twPG2 }, headwinds: { pg1: hwPG1, pg2: hwPG2 } }
+  if (!pgMetrics.length) {
+    const empty = { marginPG: null, salesPG: null, volumePG: null }
+    return { tailwinds: empty, headwinds: { ...empty } }
+  }
+
+  // Sort once per dimension
+  const byMargin = [...pgMetrics].sort((a, b) => (b.actMPct - b.refMPct) - (a.actMPct - a.refMPct))
+  const bySales  = [...pgMetrics].sort((a, b) => b.salesGrowth - a.salesGrowth)
+  const byVol    = [...pgMetrics].sort((a, b) => b.volGrowth   - a.volGrowth)
+
+  return {
+    tailwinds: {
+      marginPG: byMargin[0]                        || null,  // highest margin % vs reference
+      salesPG:  bySales[0]                         || null,  // highest net sales vs reference
+      volumePG: byVol[0]                           || null,  // highest volume vs reference
+    },
+    headwinds: {
+      marginPG: byMargin[byMargin.length - 1]      || null,  // lowest margin % vs reference
+      salesPG:  bySales[bySales.length - 1]        || null,  // lowest net sales vs reference
+      volumePG: byVol[byVol.length - 1]            || null,  // lowest volume vs reference
+    },
+  }
 }
 
 // Compute price-led vs volume-led split between two sets of rows
