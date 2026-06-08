@@ -25,7 +25,7 @@ export function parseQueryIntent(query, metadata) {
   }
 
   // ── Year detection ────────────────────────────────────────────────────────
-  const yearRaw = [...raw.matchAll(/\bfy(\d{4}|\d{2})\b|\b(20\d{2})\b/gi)]
+  const yearRaw = [...raw.matchAll(/\bfy\s*(\d{4}|\d{2})\b|\b(20\d{2})\b/gi)]
   const years = yearRaw.length > 0
     ? [...new Set(yearRaw.map(m => {
         const n = (m[1] || m[2]).replace(/^fy/i, '')
@@ -71,6 +71,7 @@ export function parseQueryIntent(query, metadata) {
   if (/product\s*group|product(?!\s*group)|sku|brand/i.test(q)) groupDims.push('Product Group')
   if (/division|divison/i.test(q))                    groupDims.push('Divison')
   if (/quarter|fq[1-4]/i.test(q) && !quarters)        groupDims.push('FiscalQuarter')
+  else if (quarters?.length > 1)                       groupDims.push('FiscalQuarter')
   if (/month|monthly|trend|over\s*time/i.test(q))     groupDims.push('MonthName')
   if (/manufactur/i.test(q))                          groupDims.push('Manufacturing Source')
 
@@ -85,6 +86,8 @@ export function parseQueryIntent(query, metadata) {
   else if (/\btrend\b|\bmonthly\b|\bover\s*time\b/i.test(q))
     analysisType = 'trend'
   else if (/\bcompare\b|\bvs\.?\b|\bversus\b/i.test(q))
+    analysisType = 'comparison'
+  else if (/\bimproved?\b|\bgrowth\s+from\b|\bchange\s+from\b|from\s+(fq|q)\d.*\bto\b.*\b(fq|q)\d/i.test(q))
     analysisType = 'comparison'
   else if (/top\s*\d+|\bbottom\s*\d+|\branking\b|\bbest\b|\bworst\b/i.test(q))
     analysisType = 'ranking'

@@ -140,6 +140,18 @@ RESPONSE FORMATS (pick exactly one):
 // ─────────────────────────────────────────────────────────────────────────────
 // Build cube-based context for the query
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Row caps: variance rows are ~400 chars each; summary rows ~180 chars each.
+// Keeping total context under ~12 KB prevents Netlify function timeouts.
+const MAX_VARIANCE_ROWS = 30
+const MAX_SUMMARY_ROWS  = 60
+const MAX_TREND_ROWS    = 80
+
+function capRows(data, limit) {
+  if (data.length <= limit) return { rows: data, truncated: 0 }
+  return { rows: data.slice(0, limit), truncated: data.length - limit }
+}
+
 function buildCubeContext(cube, intent) {
   const filter = {
     scenarios:     intent.scenarios     || undefined,
@@ -170,19 +182,44 @@ function buildCubeContext(cube, intent) {
   let data
   if (analysisType === 'variance' || analysisType === 'executive_summary') {
     data = queryVariances(cube, filter, groupDims)
-    if (topN) data = isBottom ? data.slice(-topN) : data.slice(0, topN)
+    if (topN) {
+      data = isBottom ? data.slice(-topN) : data.slice(0, topN)
+    } else {
+      const { rows, truncated } = capRows(data, MAX_VARIANCE_ROWS)
+      data = rows
+      if (truncated > 0) {
+        return scopeHeader +
+          formatCubeContext(data, 'variance', groupDims) +
+          `\n[NOTE: ${truncated} additional rows omitted — results sorted by Actuals Sales descending. Use "top N" in your question to see specific rankings.]`
+      }
+    }
     return scopeHeader + formatCubeContext(data, 'variance', groupDims)
   }
 
   if (analysisType === 'trend') {
     const trendDims = [...new Set([...groupDims, 'Scenario', 'MonthName'])]
     data = queryCube(cube, filter, trendDims)
-    return scopeHeader + formatCubeContext(data, 'trend', trendDims)
+    const { rows, truncated } = capRows(data, MAX_TREND_ROWS)
+    data = rows
+    const ctx = scopeHeader + formatCubeContext(data, 'trend', trendDims)
+    return truncated > 0
+      ? ctx + `\n[NOTE: ${truncated} additional rows omitted.]`
+      : ctx
   }
 
   // Default: scenario comparison / summary / ranking
   data = queryCube(cube, filter, groupDims)
-  if (topN) data = isBottom ? data.slice(-topN) : data.slice(0, topN)
+  if (topN) {
+    data = isBottom ? data.slice(-topN) : data.slice(0, topN)
+  } else {
+    const { rows, truncated } = capRows(data, MAX_SUMMARY_ROWS)
+    data = rows
+    if (truncated > 0) {
+      return scopeHeader +
+        formatCubeContext(data, analysisType, groupDims) +
+        `\n[NOTE: ${truncated} additional rows omitted — results sorted by Sales descending. Use "top N" to see specific rankings.]`
+    }
+  }
   return scopeHeader + formatCubeContext(data, analysisType, groupDims)
 }
 
