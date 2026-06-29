@@ -4,6 +4,16 @@
 // Every metric is a direct sum of source data — nothing is estimated.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Normalize a dimension value — blanks (null / undefined / empty / whitespace)
+// become a clear placeholder so they never render empty or collide with the
+// ungrouped "TOTAL" label. Value columns (Sales/Volume/COGM/Margin) are never
+// passed through here.
+export const BLANK_LABEL = 'Unspecified'
+export const dimVal = (v) => {
+  const s = v == null ? '' : String(v).trim()
+  return s === '' ? BLANK_LABEL : s
+}
+
 // Aggregate a set of leaf records (already pre-summed) into one metrics object
 function aggLeaves(leaves) {
   const sales  = leaves.reduce((s, r) => s + r.Sales,   0)
@@ -23,14 +33,18 @@ function aggLeaves(leaves) {
 }
 
 // ── Build the cube ────────────────────────────────────────────────────────────
-// Leaf granularity: Scenario × Year × FiscalQuarter × MonthName × Therapy Area × Product Group × Divison
+// Leaf granularity: Scenario × Year × FiscalQuarter × MonthName × Therapy Area
+//                   × Product Group × Divison × Dosage Form × Region × SBU
 export function buildDataCube(rawData) {
   // Detect which year column is present in the data
   const YEAR_COL = rawData[0] != null && rawData[0]['FiscalYear'] != null ? 'FiscalYear' : 'Year'
+  // Authoritative SBU column — prefer "Reported SBU" per the dataset spec
+  const SBU_COL  = rawData[0] != null && rawData[0]['Reported SBU'] != null ? 'Reported SBU' : 'SBU'
 
   const DIMS = [
     'Scenario', YEAR_COL, 'FiscalQuarter', 'MonthName',
     'Therapy Area', 'Product Group', 'Divison',
+    'Dosage Form', 'Region', SBU_COL,
   ]
 
   // Group raw rows into leaf cells
@@ -77,11 +91,15 @@ export function buildDataCube(rawData) {
     scenarios:     uniq('Scenario'),
     years:         [...new Set(rawData.map(r => String(r[YEAR_COL])).filter(Boolean))].sort(),
     yearCol:       YEAR_COL,
+    sbuCol:        SBU_COL,
     quarters:      ['FQ1','FQ2','FQ3','FQ4'].filter(q => rawData.some(r => r.FiscalQuarter === q)),
     months:        uniq('MonthName'),
     therapyAreas:  uniq('Therapy Area'),
     productGroups: uniq('Product Group'),
     divisions:     uniq('Divison'),
+    dosageForms:   uniq('Dosage Form'),
+    regions:       uniq('Region'),
+    sbus:          uniq(SBU_COL),
     manufacturingSources: uniq('Manufacturing Source'),
   }
 
@@ -91,8 +109,12 @@ export function buildDataCube(rawData) {
 // ── Filter + aggregate leaves ─────────────────────────────────────────────────
 function filterLeaves(leaves, filter = {}) {
   let data = leaves
-  const { scenarios, years, quarters, months, therapyAreas, productGroups, divisions, yearCol } = filter
+  const {
+    scenarios, years, quarters, months, therapyAreas, productGroups, divisions,
+    dosageForms, regions, sbus, yearCol, sbuCol,
+  } = filter
   const yCol = yearCol || 'Year'
+  const sCol = sbuCol  || 'SBU'
   if (scenarios?.length)     data = data.filter(r => scenarios.includes(r.Scenario))
   if (years?.length)         data = data.filter(r => years.includes(String(r[yCol])))
   if (quarters?.length)      data = data.filter(r => quarters.includes(r.FiscalQuarter))
@@ -100,6 +122,9 @@ function filterLeaves(leaves, filter = {}) {
   if (therapyAreas?.length)  data = data.filter(r => therapyAreas.includes(r['Therapy Area']))
   if (productGroups?.length) data = data.filter(r => productGroups.includes(r['Product Group']))
   if (divisions?.length)     data = data.filter(r => divisions.includes(r['Divison']))
+  if (dosageForms?.length)   data = data.filter(r => dosageForms.includes(r['Dosage Form']))
+  if (regions?.length)       data = data.filter(r => regions.includes(r['Region']))
+  if (sbus?.length)          data = data.filter(r => sbus.includes(r[sCol]))
   return data
 }
 
@@ -108,7 +133,7 @@ function groupAndAgg(data, groupDims) {
   if (groupDims.length === 0) return [aggLeaves(data)]
   const groups = {}
   for (const leaf of data) {
-    const key = groupDims.map(d => leaf[d] ?? 'Unknown').join('|||')
+    const key = groupDims.map(d => dimVal(leaf[d])).join('|||')
     if (!groups[key]) groups[key] = []
     groups[key].push(leaf)
   }
@@ -228,11 +253,11 @@ export function formatCubeContext(data, analysisType, groupDims) {
   if (analysisType === 'variance') {
     const lines = [
       'VARIANCE DATA (Actuals vs Budgeted) — source: pre-computed from raw data, do not derive:',
-      `Columns: ${groupDims.join(', ') || 'TOTAL'} | Actuals Sales | Budget Sales | Sales Var $ | Sales Var % | Price Effect | Volume Effect $ | Actuals Vol (units) | Budget Vol (units) | Vol Unit Var | Actuals Margin | Budget Margin | Margin Var $ | Actuals COGM | Budget COGM | COGM Var $`,
+      `Columns: ${groupDims.join(', ') || 'TOTAL'} | Actuals Sales | Budget Sales | Sales Var $ | Sales Var % | Price Effect | Volume Effect $ | Actuals Vol (units) | Budget Vol (units) | Vol Unit Var | Actuals Margin | Budget Margin | Margin Var $ | Actuals Margin % | Budget Margin % | Margin % Gap (Act−Bud) | Actuals COGM | Budget COGM | COGM Var $`,
       '',
     ]
     for (const r of data) {
-      const dimLabel = groupDims.map(d => r[d]).join(' / ') || 'TOTAL'
+      const dimLabel = groupDims.length ? groupDims.map(d => dimVal(r[d])).join(' / ') : 'TOTAL'
       const sv = r.SalesVariance, mv = r.MarginVariance, cv = r.COGMVariance
       lines.push(
         `${dimLabel}:` +
@@ -243,6 +268,8 @@ export function formatCubeContext(data, analysisType, groupDims) {
         ` VolUnitVar=${r.Actuals.Volume - r.Budgeted.Volume >= 0 ? '+' : ''}${Math.round(r.Actuals.Volume - r.Budgeted.Volume).toLocaleString()} (${r.Budgeted.Volume > 0 ? ((r.Actuals.Volume - r.Budgeted.Volume) / r.Budgeted.Volume * 100).toFixed(1) : '—'}%)` +
         ` | Act Margin=${fmtN(r.Actuals.Margin)} Bud Margin=${fmtN(r.Budgeted.Margin)}` +
         ` MarginVar=${fv(mv.TotalVar, mv.Favourable)}` +
+        ` | Act Margin%=${r.Actuals.MarginPct.toFixed(1)}% Bud Margin%=${r.Budgeted.MarginPct.toFixed(1)}%` +
+        ` Margin%Gap=${(r.Actuals.MarginPct - r.Budgeted.MarginPct) >= 0 ? '+' : ''}${(r.Actuals.MarginPct - r.Budgeted.MarginPct).toFixed(1)}pts (${r.Actuals.MarginPct < r.Budgeted.MarginPct ? 'BELOW budget' : 'at/above budget'})` +
         ` | Act COGM=${fmtN(r.Actuals.COGM)} Bud COGM=${fmtN(r.Budgeted.COGM)}` +
         ` COGMVar=${fv(cv.AbsoluteVar, cv.Favourable)}`
       )
@@ -253,7 +280,7 @@ export function formatCubeContext(data, analysisType, groupDims) {
   if (analysisType === 'trend') {
     const lines = ['MONTHLY TREND DATA (source: raw data, do not derive):']
     for (const r of data) {
-      const dimLabel = groupDims.map(d => r[d]).join(' / ')
+      const dimLabel = groupDims.length ? groupDims.map(d => dimVal(r[d])).join(' / ') : 'TOTAL'
       lines.push(`${dimLabel}: Sales=${fmtN(r.Sales)} Volume=${Math.round(r.Volume).toLocaleString()} Margin=${fmtN(r.Margin)} MarginPct=${r.MarginPct.toFixed(1)}%`)
     }
     return lines.join('\n')
@@ -265,7 +292,7 @@ export function formatCubeContext(data, analysisType, groupDims) {
   lines.push(`Grouped by: ${dimLabel}`)
   lines.push('')
   for (const r of data) {
-    const label = groupDims.map(d => r[d]).join(' / ') || 'TOTAL'
+    const label = groupDims.length ? groupDims.map(d => dimVal(r[d])).join(' / ') : 'TOTAL'
     lines.push(
       `${label}: Sales=${fmtN(r.Sales)} Volume=${Math.round(r.Volume).toLocaleString()} COGM=${fmtN(r.COGM)} Margin=${fmtN(r.Margin)} MarginPct=${r.MarginPct.toFixed(1)}% ASP=${r.ASP > 0 ? '$' + r.ASP.toFixed(2) : '—'}`
     )

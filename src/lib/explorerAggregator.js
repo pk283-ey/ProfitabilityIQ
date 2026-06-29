@@ -3,6 +3,8 @@
 // Powers the Sales & Margin Explorer tab
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { dimVal } from './dataCube.js'
+
 const MONTH_ORDER = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar']
 
 export const DEFAULT_HIERARCHY = ['Divison','Therapy Area','Product Group','Brand Group','Dosage Form','SKU Desc']
@@ -54,7 +56,7 @@ function buildColMap(rows, hierarchyOrder) {
   for (const row of rows) {
     const parts = []
     for (let d = 0; d < hierarchyOrder.length; d++) {
-      parts.push(String(row[hierarchyOrder[d]] ?? 'Unknown'))
+      parts.push(dimVal(row[hierarchyOrder[d]]))
       const key = parts.join('|||')
       if (!maps[d][key]) maps[d][key] = { Sales: 0, Margin: 0, Volume: 0 }
       maps[d][key].Sales  += Number(row.Sales)              || 0
@@ -172,7 +174,7 @@ export function getVarianceChartData(rawData, sbuFilter, configs, dimension, var
     const rows = filterForColumn(rawData, sbuFilter, col)
     const map = {}
     for (const row of rows) {
-      const k = String(row[dimension] ?? 'Unknown')
+      const k = dimVal(row[dimension])
       if (!map[k]) map[k] = { Sales: 0, Margin: 0 }
       map[k].Sales  += Number(row.Sales)  || 0
       map[k].Margin += Number(row.Margin) || 0

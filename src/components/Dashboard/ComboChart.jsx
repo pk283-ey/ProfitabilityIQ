@@ -4,6 +4,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, Cell, Label,
 } from 'recharts'
 import { ArrowUpDown } from 'lucide-react'
+import { dimVal } from '../../lib/dataCube.js'
 
 const DIMS = [
   { label: 'Therapy Area',  key: 'Therapy Area'  },
@@ -40,7 +41,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 function aggregate(data, dimKey) {
   const map = {}
   for (const row of data) {
-    const k = row[dimKey] ?? 'Unknown'
+    const k = dimVal(row[dimKey])
     if (!map[k]) map[k] = { name: k, sales: 0, margin: 0 }
     map[k].sales  += Number(row['Sales'])  || 0
     map[k].margin += Number(row['Margin']) || 0

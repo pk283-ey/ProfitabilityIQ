@@ -161,10 +161,24 @@ function buildCubeContext(cube, intent) {
     therapyAreas:  intent.therapyAreas  || undefined,
     productGroups: intent.productGroups || undefined,
     divisions:     intent.divisions     || undefined,
+    dosageForms:   intent.dosageForms   || undefined,
+    regions:       intent.regions       || undefined,
+    sbus:          intent.sbus          || undefined,
     yearCol:       cube.metadata.yearCol,
+    sbuCol:        cube.metadata.sbuCol,
   }
 
   const { analysisType, groupDims, topN, isBottom } = intent
+  const rankMetric = intent.rankMetric || 'Sales'
+
+  // Compact number formatter for the grand-total annotation
+  const fmtGrand = (n) => {
+    const a = Math.abs(n), s = n < 0 ? '-' : ''
+    if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(2)}B`
+    if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(1)}M`
+    if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(1)}K`
+    return `${s}$${a.toFixed(0)}`
+  }
 
   // Build a human-readable scope label to prepend to every context block
   const scopeParts = [
@@ -175,6 +189,9 @@ function buildCubeContext(cube, intent) {
     intent.therapyAreas?.length ? `TherapyArea: ${intent.therapyAreas.join(', ')}`    : null,
     intent.productGroups?.length? `ProductGroup: ${intent.productGroups.join(', ')}`  : null,
     intent.divisions?.length    ? `Division: ${intent.divisions.join(', ')}`           : null,
+    intent.dosageForms?.length  ? `DosageForm: ${intent.dosageForms.join(', ')}`      : null,
+    intent.regions?.length      ? `Region: ${intent.regions.join(', ')}`               : null,
+    intent.sbus?.length         ? `SBU: ${intent.sbus.join(', ')}`                     : null,
   ].filter(Boolean)
   const scopeHeader = `DATA SCOPE — pre-filtered to: ${scopeParts.join(' | ')}\n` +
     `All figures below reflect ONLY this scope. Do NOT say data is missing or refer to any broader period.\n`
@@ -209,16 +226,34 @@ function buildCubeContext(cube, intent) {
 
   // Default: scenario comparison / summary / ranking
   data = queryCube(cube, filter, groupDims)
+
+  // Re-rank by the requested metric (groupAndAgg defaults to Sales-desc).
+  // For "bottom/worst" queries we sort ascending so the weakest appear first.
+  data = [...data].sort((a, b) => {
+    const av = Number(a[rankMetric]) || 0
+    const bv = Number(b[rankMetric]) || 0
+    return isBottom ? av - bv : bv - av
+  })
+
   if (topN) {
-    data = isBottom ? data.slice(-topN) : data.slice(0, topN)
-  } else {
-    const { rows, truncated } = capRows(data, MAX_SUMMARY_ROWS)
-    data = rows
-    if (truncated > 0) {
-      return scopeHeader +
-        formatCubeContext(data, analysisType, groupDims) +
-        `\n[NOTE: ${truncated} additional rows omitted — results sorted by Sales descending. Use "top N" to see specific rankings.]`
+    // Grand total across ALL groups so the AI can compute each row's % of total.
+    // (Percentages can't be summed, so skip the total when ranking by Margin %.)
+    let totalLine = ''
+    if (rankMetric !== 'MarginPct') {
+      const grand = data.reduce((s, r) => s + (Number(r[rankMetric]) || 0), 0)
+      const grandFmt = rankMetric === 'Volume' ? Math.round(grand).toLocaleString() : fmtGrand(grand)
+      totalLine = `\nGRAND TOTAL across all groups (${rankMetric}) = ${grandFmt} — use this to compute each row's % of total.`
     }
+    data = data.slice(0, topN)
+    return scopeHeader + formatCubeContext(data, analysisType, groupDims) + totalLine
+  }
+
+  const { rows, truncated } = capRows(data, MAX_SUMMARY_ROWS)
+  data = rows
+  if (truncated > 0) {
+    return scopeHeader +
+      formatCubeContext(data, analysisType, groupDims) +
+      `\n[NOTE: ${truncated} additional rows omitted — results sorted by ${rankMetric} ${isBottom ? 'ascending' : 'descending'}. Use "top N" to see specific rankings.]`
   }
   return scopeHeader + formatCubeContext(data, analysisType, groupDims)
 }

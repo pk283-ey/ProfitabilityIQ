@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { dimVal } from './dataCube.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -14,7 +15,7 @@ const fmt  = (n) => {
 function groupBy(arr, keys) {
   const map = {}
   for (const row of arr) {
-    const k = keys.map(k => row[k] ?? 'Unknown').join('|||')
+    const k = keys.map(k => dimVal(row[k])).join('|||')
     if (!map[k]) map[k] = []
     map[k].push(row)
   }
@@ -27,7 +28,7 @@ function aggregateGroup(rows, groupKeys) {
   const m = sum(rows, 'Margin')
   const v = sum(rows, 'Sales Volume')
   const obj = {}
-  groupKeys.forEach(k => { obj[k] = rows[0][k] ?? 'Unknown' })
+  groupKeys.forEach(k => { obj[k] = dimVal(rows[0][k]) })
   obj['Sales']        = s
   obj['COGM']         = c
   obj['Margin']       = m
