@@ -22,6 +22,9 @@ export function parseQueryIntent(query, metadata) {
     if (hasActuals) scenarios = ['Actuals']
     else if (hasBudget) scenarios = ['Budgeted']
     else if (hasLE) scenarios = ['Latest Estimate']
+    // Default to Actuals when no scenario is named (matches the business
+    // convention that single-view questions are about Actuals performance).
+    else scenarios = ['Actuals']
   }
 
   // ── Year detection ────────────────────────────────────────────────────────
@@ -46,18 +49,17 @@ export function parseQueryIntent(query, metadata) {
   // ── Entity filters — match exact names from metadata ─────────────────────
   // Only match entity names that are at least 4 chars to avoid false positives
   // (e.g. digit "0" in "FY2026" accidentally matching a numeric metadata value)
-  const therapyAreas = metadata.therapyAreas.filter(t => {
-    const s = String(t).toLowerCase()
+  const matchEntities = (list) => (list || []).filter(v => {
+    const s = String(v).toLowerCase()
     return s.length >= 4 && q.includes(s)
   })
-  const productGroups = metadata.productGroups.filter(p => {
-    const s = String(p).toLowerCase()
-    return s.length >= 4 && q.includes(s)
-  })
-  const divisions = metadata.divisions.filter(d => {
-    const s = String(d).toLowerCase()
-    return s.length >= 4 && q.includes(s)
-  })
+  const therapyAreas  = matchEntities(metadata.therapyAreas)
+  const productGroups = matchEntities(metadata.productGroups)
+  const divisions     = matchEntities(metadata.divisions)
+  const dosageForms   = matchEntities(metadata.dosageForms)
+  const regions       = matchEntities(metadata.regions)
+  const sbus          = matchEntities(metadata.sbus)
+  const sbuCol        = metadata.sbuCol || 'SBU'
 
   // ── GroupBy dimensions ────────────────────────────────────────────────────
   const groupDims = []
@@ -70,6 +72,9 @@ export function parseQueryIntent(query, metadata) {
   if (/therapy\s*area|therapy/i.test(q))              groupDims.push('Therapy Area')
   if (/product\s*group|product(?!\s*group)|sku|brand/i.test(q)) groupDims.push('Product Group')
   if (/division|divison/i.test(q))                    groupDims.push('Divison')
+  if (/dosage\s*form|dosage|formulation/i.test(q))    groupDims.push('Dosage Form')
+  if (/\bregion\b|\bregions\b|geograph/i.test(q))     groupDims.push('Region')
+  if (/\bsbu\b|\bsbus\b/i.test(q))                    groupDims.push(sbuCol)
   if (/quarter|fq[1-4]/i.test(q) && !quarters)        groupDims.push('FiscalQuarter')
   else if (quarters?.length > 1)                       groupDims.push('FiscalQuarter')
   if (/month|monthly|trend|over\s*time/i.test(q))     groupDims.push('MonthName')
@@ -78,6 +83,10 @@ export function parseQueryIntent(query, metadata) {
   // ── Analysis type ─────────────────────────────────────────────────────────
   let analysisType = 'summary'
   if (/\bvariance\b|price\s*(var|effect)|volume\s*(var|effect)|price\s*&\s*vol/i.test(q))
+    analysisType = 'variance'
+  // "below/under budget", "running below budgeted margin", "below target" → per-group
+  // Actuals-vs-Budgeted comparison (handled by the variance path)
+  else if (/below\s+budget|under\s+budget|below\s+budgeted|running\s+below|below\s+target|missing\s+budget|short\s+of\s+budget/i.test(q))
     analysisType = 'variance'
   else if (/\bhighlight\b|\bexec(utive)?\s*summ|\bfinancial\s*(highlight|summ)/i.test(q))
     analysisType = 'executive_summary'
@@ -102,7 +111,14 @@ export function parseQueryIntent(query, metadata) {
       ? parseInt(raw.match(/\bbottom\s*(\d+)\b/i)[1])
       : null
 
-  const isBottom = /\bbottom\s*\d+/i.test(q)
+  const isBottom = /\bbottom\s*\d+|\bworst\b|\blowest\b/i.test(q)
+
+  // ── Ranking metric — which column to sort top/bottom N by ──────────────────
+  // QnA rankings can be by margin %, margin $, volume, or sales (default).
+  let rankMetric = 'Sales'
+  if (/margin\s*%|margin\s*percent|profitab|most\s+profitable|least\s+profitable/i.test(q)) rankMetric = 'MarginPct'
+  else if (/\bmargin\b/i.test(q))                                                            rankMetric = 'Margin'
+  else if (/\bvolume\b|\bunits?\b/i.test(q))                                                 rankMetric = 'Volume'
 
   return {
     scenarios,
@@ -112,10 +128,15 @@ export function parseQueryIntent(query, metadata) {
     therapyAreas:  therapyAreas.length  > 0 ? therapyAreas  : null,
     productGroups: productGroups.length > 0 ? productGroups : null,
     divisions:     divisions.length     > 0 ? divisions     : null,
+    dosageForms:   dosageForms.length   > 0 ? dosageForms   : null,
+    regions:       regions.length       > 0 ? regions       : null,
+    sbus:          sbus.length          > 0 ? sbus          : null,
+    sbuCol,
     groupDims:            analysisType === 'variance' || analysisType === 'executive_summary'
                             ? groupDimsForVariance
                             : groupDims,
     analysisType,
+    rankMetric,
     topN,
     isBottom,
   }

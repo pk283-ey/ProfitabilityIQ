@@ -2,6 +2,8 @@
 // Dashboard Aggregator — all data transformations for the dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { dimVal } from './dataCube.js'
+
 const MONTH_ORDER = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar']
 
 const sum  = (arr, key) => arr.reduce((s, r) => s + (Number(r[key]) || 0), 0)
@@ -9,7 +11,7 @@ const sum  = (arr, key) => arr.reduce((s, r) => s + (Number(r[key]) || 0), 0)
 function groupBy(arr, key) {
   const map = {}
   for (const row of arr) {
-    const k = (row[key] ?? 'Unknown')
+    const k = dimVal(row[key])
     if (!map[k]) map[k] = []
     map[k].push(row)
   }
@@ -237,7 +239,7 @@ export function computeDashboardData(filteredData, rawData, filters) {
 function _aggBy(rows, dim) {
   const map = {}
   for (const row of rows) {
-    const k = row[dim] || 'Unknown'
+    const k = dimVal(row[dim])
     if (!map[k]) map[k] = { Sales: 0, Volume: 0, COGM: 0, Margin: 0 }
     map[k].Sales  += Number(row['Sales'])        || 0
     map[k].Volume += Number(row['Sales Volume']) || 0
